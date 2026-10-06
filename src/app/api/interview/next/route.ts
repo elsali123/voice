@@ -13,6 +13,7 @@ const ACTIONS: InterviewAction[] = ["start", "answer", "skip", "unheard", "wrap"
 export async function POST(req: Request) {
   const user = await currentUser();
   if (!user) return unauthorized();
+  if (user.role !== "storyteller") return Response.json({ error: "Only storytellers record stories." }, { status: 403 });
   const body = await readJson(req);
 
   const topicId = TOPICS.some((t) => t.id === body.topic) ? (body.topic as string) : null;

@@ -4,47 +4,125 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import CameraSnap from "./CameraSnap";
 import PinPad from "./PinPad";
-import { IconBack, IconNext } from "./icons";
+import { IconBack, IconCheck, IconNext } from "./icons";
+import { AGE_GROUPS, BACKGROUNDS } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 
-type Field = "name" | "birthYear" | "hometown" | "work" | "interests";
+type Field = "name" | "birthYear" | "hometown" | "work" | "interests" | "goals" | "about" | "ageGroup" | "background" | "coordinatorCode";
 
-interface TextStep {
-  kind: "text";
-  field: Field;
-  question: string;
-  help: string;
-  placeholder: string;
-  required?: boolean;
-  numeric?: boolean;
-}
+type Step =
+  | { kind: "role" }
+  | { kind: "text"; field: Field; question: string; help: string; placeholder: string; required?: boolean; numeric?: boolean }
+  | { kind: "choice"; field: Field; question: string; help: string; options: { value: string; label: string }[]; required?: boolean }
+  | { kind: "photo" }
+  | { kind: "pin" };
 
-const STEPS: (TextStep | { kind: "photo" } | { kind: "pin" })[] = [
-  { kind: "text", field: "name", question: "What's your name?", help: "This is how others will see you.", placeholder: "For example: Margaret Hill", required: true },
-  { kind: "photo" },
-  { kind: "text", field: "birthYear", question: "What year were you born?", help: "Your interviewer uses this to ask about the right times in history.", placeholder: "For example: 1948", numeric: true },
-  { kind: "text", field: "hometown", question: "Where did you grow up?", help: "A town, a city or a country, whatever you like.", placeholder: "For example: a farm near Toledo, Ohio" },
-  { kind: "text", field: "work", question: "What kind of work did you do?", help: "Paid work, raising a family, volunteering: it all counts.", placeholder: "For example: school teacher for 30 years" },
-  { kind: "text", field: "interests", question: "What do you enjoy?", help: "Hobbies, interests, things you love to talk about.", placeholder: "For example: gardening, baseball, baking pies" },
-  { kind: "pin" },
+const NAME: Step = { kind: "text", field: "name", question: "What's your name?", help: "This is how others will see you.", placeholder: "For example: Margaret Hill", required: true };
+
+const STEPS: Record<Role, Step[]> = {
+  storyteller: [
+    NAME,
+    { kind: "photo" },
+    { kind: "text", field: "birthYear", question: "What year were you born?", help: "Your interviewer uses this to ask about the right times in history.", placeholder: "For example: 1948", numeric: true },
+    { kind: "text", field: "hometown", question: "Where did you grow up?", help: "A town, a city or a country, whatever you like.", placeholder: "For example: a farm near Toledo, Ohio" },
+    { kind: "text", field: "work", question: "What kind of work did you do?", help: "Paid work, raising a family, volunteering: it all counts.", placeholder: "For example: school teacher for 30 years" },
+    { kind: "text", field: "interests", question: "What do you enjoy?", help: "Hobbies, interests, things you love to talk about.", placeholder: "For example: gardening, baseball, baking pies" },
+    { kind: "pin" },
+  ],
+  listener: [
+    { ...NAME, placeholder: "For example: Jamie Rivera" },
+    { kind: "photo" },
+    {
+      kind: "choice",
+      field: "ageGroup",
+      question: "How old are you?",
+      help: "This helps your coordinator find a good match.",
+      options: AGE_GROUPS,
+      required: true,
+    },
+    {
+      kind: "choice",
+      field: "background",
+      question: "Which describes you best?",
+      help: "Choose one.",
+      options: BACKGROUNDS.map((b) => ({ value: b, label: b })),
+      required: true,
+    },
+    { kind: "text", field: "interests", question: "What are you interested in?", help: "Hobbies, school subjects, sports, music, anything.", placeholder: "For example: baseball, history, cooking" },
+    {
+      kind: "text",
+      field: "goals",
+      question: "What would you love to learn from an older person?",
+      help: "We use this to pair you with a storyteller who lived it.",
+      placeholder: "For example: what school was like 60 years ago",
+    },
+    {
+      kind: "text",
+      field: "about",
+      question: "Is there someone you'd like to be paired with?",
+      help: "Optional. For example, your grandmother, if she's sharing her stories here too.",
+      placeholder: "For example: my grandma, Margaret Hill",
+    },
+    { kind: "pin" },
+  ],
+  coordinator: [
+    NAME,
+    {
+      kind: "text",
+      field: "coordinatorCode",
+      question: "What's the coordinator code?",
+      help: "Coordinators approve pairings between listeners and storytellers. The code is set by whoever runs this program.",
+      placeholder: "Coordinator code",
+      required: true,
+    },
+    { kind: "pin" },
+  ],
+};
+
+const ROLE_OPTIONS: { role: Role; title: string; text: string; emoji: string }[] = [
+  { role: "storyteller", title: "I want to share my life stories", text: "A friendly interviewer asks the questions. You just talk.", emoji: "🎙️" },
+  { role: "listener", title: "I want to listen and learn", text: "For students, volunteers, grandchildren and anyone curious.", emoji: "🎧" },
 ];
 
-/** "I'm new here": one question per screen, then a PIN. */
+const AFTER_JOIN: Record<Role, string> = { storyteller: "/record", listener: "/", coordinator: "/coordinator" };
+
+/** "I'm new here": who are you, then one question per screen, then a PIN. */
 export default function JoinWizard() {
   const router = useRouter();
+  const [role, setRole] = useState<Role | null>(null);
   const [step, setStep] = useState(0);
-  const [values, setValues] = useState<Record<Field, string>>({ name: "", birthYear: "", hometown: "", work: "", interests: "" });
+  const [values, setValues] = useState<Record<Field, string>>({
+    name: "",
+    birthYear: "",
+    hometown: "",
+    work: "",
+    interests: "",
+    goals: "",
+    about: "",
+    ageGroup: "",
+    background: "",
+    coordinatorCode: "",
+  });
   const [photo, setPhoto] = useState<string | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const current = STEPS[step];
-  const isLast = step === STEPS.length - 1;
+  const steps: Step[] = [{ kind: "role" }, ...(role ? STEPS[role] : [])];
+  const current = steps[step];
+  const isLast = role !== null && step === steps.length - 1;
   const first = values.name.trim().split(/\s+/)[0];
 
   const canContinue =
-    current.kind === "pin" ? pin.length === 4 : current.kind === "text" && current.required ? values[current.field].trim().length > 0 : true;
-  const isEmptyOptional = current.kind === "photo" ? !photo : current.kind === "text" && !current.required && !values[current.field].trim();
+    current.kind === "role"
+      ? role !== null
+      : current.kind === "pin"
+        ? pin.length === 4
+        : current.kind === "text" || current.kind === "choice"
+          ? !current.required || values[current.field].trim().length > 0
+          : true;
+  const isEmptyOptional =
+    current.kind === "photo" ? !photo : (current.kind === "text" || current.kind === "choice") && !current.required && !values[current.field].trim();
 
   const submit = async () => {
     setBusy(true);
@@ -52,10 +130,10 @@ export default function JoinWizard() {
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...values, photo, pin }),
+      body: JSON.stringify({ ...values, role, photo, pin }),
     });
-    if (res.ok) {
-      router.push("/record");
+    if (res.ok && role) {
+      router.push(AFTER_JOIN[role]);
       router.refresh();
       return;
     }
@@ -70,16 +148,20 @@ export default function JoinWizard() {
     else setStep(step + 1);
   };
 
+  const choose = (field: Field, value: string) => setValues({ ...values, [field]: value });
+
   return (
     <div className="mx-auto max-w-2xl space-y-8">
-      <div>
-        <p className="text-xl font-bold text-ink-soft">
-          Step {step + 1} of {STEPS.length}
-        </p>
-        <div className="mt-2 h-3 overflow-hidden rounded-full bg-line" aria-hidden="true">
-          <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
+      {role && (
+        <div>
+          <p className="text-xl font-bold text-ink-soft">
+            Step {step + 1} of {steps.length}
+          </p>
+          <div className="mt-2 h-3 overflow-hidden rounded-full bg-line" aria-hidden="true">
+            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
+          </div>
         </div>
-      </div>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -88,6 +170,39 @@ export default function JoinWizard() {
         }}
         className="space-y-6"
       >
+        {current.kind === "role" && (
+          <>
+            <h1 className="text-4xl font-bold">Welcome! Which describes you?</h1>
+            <div className="grid gap-4">
+              {ROLE_OPTIONS.map((o) => (
+                <button
+                  key={o.role}
+                  type="button"
+                  aria-pressed={role === o.role}
+                  onClick={() => setRole(o.role)}
+                  className={`flex items-center gap-5 rounded-3xl border-4 p-6 text-left ${role === o.role ? "border-brand bg-brand-soft" : "border-line bg-card hover:border-brand"}`}
+                >
+                  <span className="text-5xl" aria-hidden="true">
+                    {o.emoji}
+                  </span>
+                  <span>
+                    <span className="block text-2xl font-bold">{o.title}</span>
+                    <span className="block text-xl text-ink-soft">{o.text}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRole("coordinator")}
+              aria-pressed={role === "coordinator"}
+              className={`text-xl underline ${role === "coordinator" ? "font-bold text-brand" : "text-ink-soft"}`}
+            >
+              {role === "coordinator" ? "✓ I'm a program coordinator" : "I'm a program coordinator"}
+            </button>
+          </>
+        )}
+
         {current.kind === "text" && (
           <>
             <label htmlFor={current.field} className="block space-y-2">
@@ -99,15 +214,38 @@ export default function JoinWizard() {
               key={current.field}
               autoFocus
               inputMode={current.numeric ? "numeric" : "text"}
-              maxLength={current.numeric ? 4 : 120}
+              maxLength={current.numeric ? 4 : 200}
               value={values[current.field]}
-              onChange={(e) =>
-                setValues({ ...values, [current.field]: current.numeric ? e.target.value.replace(/\D/g, "") : e.target.value })
-              }
+              onChange={(e) => choose(current.field, current.numeric ? e.target.value.replace(/\D/g, "") : e.target.value)}
               placeholder={current.placeholder}
               className="w-full rounded-2xl border-4 border-line bg-card px-5 py-4 text-3xl placeholder:text-ink-soft/60 focus:border-brand focus:outline-none"
             />
           </>
+        )}
+
+        {current.kind === "choice" && (
+          <fieldset className="space-y-4">
+            <legend className="space-y-2">
+              <span className="block text-4xl font-bold">{current.question}</span>
+              <span className="block text-xl text-ink-soft">{current.help}</span>
+            </legend>
+            <div className="grid gap-3">
+              {current.options.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  aria-pressed={values[current.field] === o.value}
+                  onClick={() => choose(current.field, o.value)}
+                  className={`flex items-center justify-between rounded-2xl border-4 px-5 py-4 text-left text-2xl font-bold ${
+                    values[current.field] === o.value ? "border-brand bg-brand-soft" : "border-line bg-card hover:border-brand"
+                  }`}
+                >
+                  {o.label}
+                  {values[current.field] === o.value && <IconCheck className="size-7 text-brand" />}
+                </button>
+              ))}
+            </div>
+          </fieldset>
         )}
 
         {current.kind === "photo" && (

@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DATA_DIR, ensureDataDirs, partialVideoFile, removeFiles, thumbFile, videoFile } from "./files";
 import { DEFAULT_SETTINGS } from "./voices";
-import type { PublicUser, Story, StoryEvent, StoryStatus, User, UserSettings, Visibility } from "./types";
+import type { Match, MatchStatus, PublicUser, Role, Story, StoryEvent, StoryStatus, User, UserSettings, Visibility } from "./types";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -40,13 +40,33 @@ CREATE TABLE IF NOT EXISTS stories (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS stories_by_user ON stories(user_id, created_at);
+CREATE TABLE IF NOT EXISTS matches (
+  id TEXT PRIMARY KEY,
+  listener_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  storyteller_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'suggested',
+  reason TEXT NOT NULL DEFAULT '',
+  shared TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'ai',
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  decided_by TEXT,
+  UNIQUE (listener_id, storyteller_id)
+);
 `;
+
+/** Columns added after the first version; added to existing databases on startup. */
+const ADDED_USER_COLUMNS = ["age_group", "background", "goals"];
 
 function open(): DatabaseSync {
   ensureDataDirs();
   const db = new DatabaseSync(path.join(DATA_DIR, "life-stories.db"));
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  const existing = new Set((db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name));
+  for (const col of ADDED_USER_COLUMNS) {
+    if (!existing.has(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
   return db;
 }
 
@@ -68,10 +88,15 @@ type UserRow = {
   work: string;
   interests: string;
   about: string;
+  age_group: string;
+  background: string;
+  goals: string;
   photo_version: number;
   settings: string;
   created_at: string;
 };
+
+const ROLES: Role[] = ["storyteller", "listener", "coordinator"];
 
 function toUser(r: UserRow): User {
   let settings: Partial<UserSettings> = {};
@@ -81,12 +106,15 @@ function toUser(r: UserRow): User {
   return {
     id: r.id,
     name: r.name,
-    role: r.role === "listener" ? "listener" : "storyteller",
+    role: ROLES.includes(r.role as Role) ? (r.role as Role) : "storyteller",
     birthYear: r.birth_year,
     hometown: r.hometown,
     work: r.work,
     interests: r.interests,
     about: r.about,
+    ageGroup: r.age_group,
+    background: r.background,
+    goals: r.goals,
     photoVersion: r.photo_version,
     settings: { ...DEFAULT_SETTINGS, ...settings },
     createdAt: r.created_at,
@@ -104,6 +132,10 @@ export function listUsers(): User[] {
   return (db.prepare("SELECT * FROM users ORDER BY name COLLATE NOCASE").all() as UserRow[]).map(toUser);
 }
 
+export function listUsersByRole(role: Role): User[] {
+  return listUsers().filter((u) => u.role === role);
+}
+
 export function getUser(id: string): User | null {
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
   return row ? toUser(row) : null;
@@ -116,22 +148,29 @@ export interface ProfileFields {
   work: string;
   interests: string;
   about: string;
+  ageGroup: string;
+  background: string;
+  goals: string;
 }
 
-export function createUser(fields: ProfileFields & { pin: string }): User {
+export function createUser(fields: ProfileFields & { pin: string; role: Role }): User {
   const id = crypto.randomUUID();
   db.prepare(
-    `INSERT INTO users (id, name, pin_hash, birth_year, hometown, work, interests, about, settings, created_at)
-     VALUES (:id, :name, :pin_hash, :birth_year, :hometown, :work, :interests, :about, :settings, :created_at)`,
+    `INSERT INTO users (id, name, role, pin_hash, birth_year, hometown, work, interests, about, age_group, background, goals, settings, created_at)
+     VALUES (:id, :name, :role, :pin_hash, :birth_year, :hometown, :work, :interests, :about, :age_group, :background, :goals, :settings, :created_at)`,
   ).run({
     id,
     name: fields.name,
+    role: fields.role,
     pin_hash: hashPin(fields.pin),
     birth_year: fields.birthYear,
     hometown: fields.hometown,
     work: fields.work,
     interests: fields.interests,
     about: fields.about,
+    age_group: fields.ageGroup,
+    background: fields.background,
+    goals: fields.goals,
     settings: JSON.stringify(DEFAULT_SETTINGS),
     created_at: now(),
   });
@@ -151,6 +190,9 @@ export function updateUser(
     ["work", "work"],
     ["interests", "interests"],
     ["about", "about"],
+    ["ageGroup", "age_group"],
+    ["background", "background"],
+    ["goals", "goals"],
   ];
   for (const [key, col] of columns) {
     if (patch[key] !== undefined) {
@@ -318,4 +360,93 @@ export function updateStory(id: string, patch: StoryPatch) {
 export async function deleteStory(id: string) {
   db.prepare("DELETE FROM stories WHERE id = ?").run(id);
   await removeFiles(videoFile(id), partialVideoFile(id), thumbFile(id));
+}
+
+// ---------- matches (listener ↔ storyteller pairings) ----------
+
+type MatchRow = {
+  id: string;
+  listener_id: string;
+  storyteller_id: string;
+  status: string;
+  reason: string;
+  shared: string;
+  source: string;
+  created_at: string;
+  decided_at: string | null;
+};
+
+function toMatch(r: MatchRow): Match {
+  return {
+    id: r.id,
+    listenerId: r.listener_id,
+    storytellerId: r.storyteller_id,
+    status: r.status as MatchStatus,
+    reason: r.reason,
+    shared: parseJson<string[]>(r.shared, []),
+    source: r.source as Match["source"],
+    createdAt: r.created_at,
+    decidedAt: r.decided_at,
+  };
+}
+
+/** Adds a suggested pairing. Does nothing if these two were already paired, suggested or declined. */
+export function suggestMatch(m: Pick<Match, "listenerId" | "storytellerId" | "reason" | "shared" | "source">): boolean {
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO matches (id, listener_id, storyteller_id, status, reason, shared, source, created_at)
+       VALUES (?, ?, ?, 'suggested', ?, ?, ?, ?)`,
+    )
+    .run(crypto.randomUUID(), m.listenerId, m.storytellerId, m.reason, JSON.stringify(m.shared), m.source, now());
+  return Number(result.changes) > 0;
+}
+
+/** A coordinator pairs two people directly (or approves an existing suggestion for them). */
+export function pairDirectly(listenerId: string, storytellerId: string, reason: string, coordinatorId: string) {
+  db.prepare(
+    `INSERT INTO matches (id, listener_id, storyteller_id, status, reason, shared, source, created_at, decided_at, decided_by)
+     VALUES (:id, :listener, :storyteller, 'approved', :reason, '[]', 'coordinator', :now, :now, :by)
+     ON CONFLICT (listener_id, storyteller_id) DO UPDATE SET
+       status = 'approved', decided_at = :now, decided_by = :by,
+       reason = CASE WHEN :reason != '' THEN :reason ELSE reason END`,
+  ).run({ id: crypto.randomUUID(), listener: listenerId, storyteller: storytellerId, reason, now: now(), by: coordinatorId });
+}
+
+export function getMatch(id: string): Match | null {
+  const row = db.prepare("SELECT * FROM matches WHERE id = ?").get(id) as MatchRow | undefined;
+  return row ? toMatch(row) : null;
+}
+
+export function listMatches(filter: { status?: MatchStatus; listenerId?: string; storytellerId?: string } = {}): Match[] {
+  const where: string[] = [];
+  const params: Record<string, SQLInputValue> = {};
+  if (filter.status) {
+    where.push("status = :status");
+    params.status = filter.status;
+  }
+  if (filter.listenerId) {
+    where.push("listener_id = :listener");
+    params.listener = filter.listenerId;
+  }
+  if (filter.storytellerId) {
+    where.push("storyteller_id = :storyteller");
+    params.storyteller = filter.storytellerId;
+  }
+  const sql = `SELECT * FROM matches ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC`;
+  return (db.prepare(sql).all(params) as MatchRow[]).map(toMatch);
+}
+
+export function decideMatch(id: string, status: MatchStatus, coordinatorId: string) {
+  db.prepare("UPDATE matches SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?").run(status, now(), coordinatorId, id);
+}
+
+/** True if a coordinator has approved a pairing between these two people (in either order). */
+export function arePaired(a: string, b: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM matches WHERE status = 'approved'
+       AND ((listener_id = :a AND storyteller_id = :b) OR (listener_id = :b AND storyteller_id = :a))`,
+    )
+    .get({ a, b });
+  return !!row;
 }

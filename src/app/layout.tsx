@@ -27,7 +27,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-dvh font-sans antialiased">
         <Header user={user ? toPublicUser(user) : null} />
         <main className={`mx-auto w-full max-w-6xl px-4 pt-6 ${user ? "pb-40" : "pb-16"}`}>{children}</main>
-        {user && <BottomNav />}
+        {user && <BottomNav role={user.role} />}
       </body>
     </html>
   );

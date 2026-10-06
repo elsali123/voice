@@ -5,6 +5,6 @@ import { firstName } from "@/lib/voices";
 
 export default async function RecordPage() {
   const user = await currentUser();
-  if (!user) redirect("/");
+  if (!user || user.role !== "storyteller") redirect("/");
   return <Studio firstName={firstName(user.name)} settings={user.settings} />;
 }

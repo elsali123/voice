@@ -1,6 +1,6 @@
 // Types shared by the server and the browser.
 
-export type Role = "storyteller" | "listener";
+export type Role = "storyteller" | "listener" | "coordinator";
 
 export type PauseWait = "short" | "medium" | "long";
 
@@ -22,6 +22,12 @@ export interface User {
   work: string;
   interests: string;
   about: string;
+  /** Listeners only: "under18" | "18to24" | "25plus". */
+  ageGroup: string;
+  /** Listeners only: who they are, e.g. "High school student". */
+  background: string;
+  /** Listeners only: what they'd love to learn from an older person. */
+  goals: string;
   /** 0 means no photo; bumped every time the photo changes (cache-busting). */
   photoVersion: number;
   settings: UserSettings;
@@ -71,3 +77,20 @@ export interface HistoryItem {
 }
 
 export type InterviewAction = "start" | "answer" | "skip" | "unheard" | "wrap";
+
+export type MatchStatus = "suggested" | "approved" | "declined";
+
+/** A pairing of a young listener with a storyteller, suggested by the matching agent or a coordinator. */
+export interface Match {
+  id: string;
+  listenerId: string;
+  storytellerId: string;
+  status: MatchStatus;
+  /** Why they were paired, written by the matching agent (or the coordinator). */
+  reason: string;
+  /** Interests they have in common. */
+  shared: string[];
+  source: "ai" | "keywords" | "coordinator";
+  createdAt: string;
+  decidedAt: string | null;
+}

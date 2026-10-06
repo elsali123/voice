@@ -7,6 +7,7 @@ import { badRequest, readJson } from "@/lib/validate";
 export async function POST(req: Request) {
   const user = await currentUser();
   if (!user) return unauthorized();
+  if (user.role !== "storyteller") return Response.json({ error: "Only storytellers record stories." }, { status: 403 });
   const { topic } = await readJson(req);
   if (!TOPICS.some((t) => t.id === topic)) return badRequest("Unknown topic");
   return Response.json({ id: createStory(user.id, topic as string) });

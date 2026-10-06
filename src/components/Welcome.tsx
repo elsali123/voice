@@ -6,10 +6,16 @@ import { useCallback, useState } from "react";
 import Avatar from "./Avatar";
 import PinPad from "./PinPad";
 import { IconBack } from "./icons";
-import type { PublicUser } from "@/lib/types";
+import type { PublicUser, Role } from "@/lib/types";
+
+const GROUPS: { role: Role; title: string }[] = [
+  { role: "storyteller", title: "Storytellers" },
+  { role: "listener", title: "Listeners" },
+  { role: "coordinator", title: "Coordinators" },
+];
 
 /** Signed-out home page: tap your picture, then enter your PIN. */
-export default function Welcome({ people }: { people: PublicUser[] }) {
+export default function Welcome({ people }: { people: (PublicUser & { role: Role })[] }) {
   const router = useRouter();
   const [chosen, setChosen] = useState<PublicUser | null>(null);
   const [pin, setPin] = useState("");
@@ -78,33 +84,40 @@ export default function Welcome({ people }: { people: PublicUser[] }) {
         </p>
       </section>
 
-      <section className="space-y-5">
+      <section className="space-y-6">
         <h2 className="text-3xl font-bold">{people.length ? "Who is here today?" : "Welcome!"}</h2>
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {people.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => setChosen(p)}
-                className="flex w-full items-center gap-4 rounded-3xl border-2 border-line bg-card p-5 text-left text-2xl font-bold shadow-sm hover:border-brand"
-              >
-                <Avatar user={p} size={72} />
-                {p.name}
-              </button>
-            </li>
-          ))}
-          <li>
-            <Link
-              href="/join"
-              className="flex h-full min-h-28 items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-brand bg-brand-soft p-5 text-2xl font-bold text-brand hover:bg-brand hover:text-white"
-            >
-              <span aria-hidden="true" className="text-4xl leading-none">
-                +
-              </span>
-              I&apos;m new here
-            </Link>
-          </li>
-        </ul>
+        {GROUPS.map(({ role, title }) => {
+          const group = people.filter((p) => p.role === role);
+          if (!group.length) return null;
+          return (
+            <div key={role} className="space-y-3">
+              {people.some((p) => p.role !== role) && <h3 className="text-2xl font-bold text-ink-soft">{title}</h3>}
+              <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {group.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => setChosen(p)}
+                      className="flex w-full items-center gap-4 rounded-3xl border-2 border-line bg-card p-5 text-left text-2xl font-bold shadow-sm hover:border-brand"
+                    >
+                      <Avatar user={p} size={72} />
+                      {p.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+        <Link
+          href="/join"
+          className="flex min-h-28 items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-brand bg-brand-soft p-5 text-2xl font-bold text-brand hover:bg-brand hover:text-white sm:max-w-md"
+        >
+          <span aria-hidden="true" className="text-4xl leading-none">
+            +
+          </span>
+          I&apos;m new here
+        </Link>
       </section>
     </div>
   );

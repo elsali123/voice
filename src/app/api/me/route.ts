@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { updateUser } from "@/lib/db";
 import { decodeJpegDataUrl, photoFile } from "@/lib/files";
 import { currentUser, unauthorized } from "@/lib/session";
+import { AGE_GROUPS, BACKGROUNDS } from "@/lib/roles";
 import type { PauseWait } from "@/lib/types";
 import { badRequest, birthYear, readJson, text } from "@/lib/validate";
 import { isVoiceId, PAUSE_WAITS } from "@/lib/voices";
@@ -23,6 +24,11 @@ export async function PATCH(req: Request) {
     if (body[key] !== undefined) patch[key] = text(body[key]);
   }
   if (body.about !== undefined) patch.about = text(body.about, 1000);
+  if (user.role === "listener") {
+    if (AGE_GROUPS.some((a) => a.value === body.ageGroup)) patch.ageGroup = body.ageGroup as string;
+    if (BACKGROUNDS.includes(body.background as string)) patch.background = body.background as string;
+    if (body.goals !== undefined) patch.goals = text(body.goals, 500);
+  }
 
   const s = body.settings as Record<string, unknown> | undefined;
   if (s && typeof s === "object") {

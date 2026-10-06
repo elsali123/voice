@@ -2,22 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconHome, IconUser, IconVideo } from "./icons";
+import { IconHome, IconUser, IconUsers, IconVideo } from "./icons";
+import type { Role } from "@/lib/types";
 
-const ITEMS = [
-  { href: "/", label: "Home", Icon: IconHome },
-  { href: "/record", label: "Record", Icon: IconVideo },
-  { href: "/me", label: "My profile", Icon: IconUser },
-];
+const ITEMS: Record<Role, { href: string; label: string; Icon: typeof IconHome }[]> = {
+  storyteller: [
+    { href: "/", label: "Home", Icon: IconHome },
+    { href: "/record", label: "Record", Icon: IconVideo },
+    { href: "/me", label: "My profile", Icon: IconUser },
+  ],
+  listener: [
+    { href: "/", label: "Home", Icon: IconHome },
+    { href: "/me", label: "My profile", Icon: IconUser },
+  ],
+  coordinator: [
+    { href: "/coordinator", label: "Pairings", Icon: IconUsers },
+    { href: "/", label: "Stories", Icon: IconHome },
+    { href: "/me", label: "My profile", Icon: IconUser },
+  ],
+};
 
-export default function BottomNav() {
+export default function BottomNav({ role }: { role: Role }) {
   const pathname = usePathname();
+  const items = ITEMS[role];
   // Hidden while recording so nobody leaves an interview by accident.
   if (pathname.startsWith("/record") || pathname.startsWith("/join")) return null;
   return (
     <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 border-t-2 border-line bg-card/95 backdrop-blur">
-      <ul className="mx-auto grid max-w-3xl grid-cols-3">
-        {ITEMS.map(({ href, label, Icon }) => {
+      <ul className={`mx-auto grid max-w-3xl ${items.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+        {items.map(({ href, label, Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <li key={href}>

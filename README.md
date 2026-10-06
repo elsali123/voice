@@ -1,12 +1,18 @@
 # Life Stories
 
 A video platform, run on your own computer (localhost), where older adults record their life
-stories with a friendly voice AI interviewer. The screens are deliberately simple: large text,
-big buttons, one task per screen.
+stories with a friendly voice AI interviewer, and young people are paired with them to listen and
+learn. The screens are deliberately simple: large text, big buttons, one task per screen.
 
-The interviewer asks a question out loud, listens to the answer, waits for a natural pause, and
-asks a follow-up about what was just said. The webcam video, the storyteller's voice and the
-interviewer's voice are recorded together into one video, which the storyteller can share.
+There are three kinds of people:
+
+- **Storytellers** (older adults) record their life stories. The interviewer asks a question out
+  loud, listens, waits for a natural pause, and asks a follow-up about what was just said. The
+  webcam video and both voices are recorded together into one video.
+- **Listeners** (high school and college students, volunteers, grandchildren, anyone, including
+  under 18) watch stories and get paired with storytellers who share their interests.
+- **Coordinators** approve every pairing. An AI matching agent suggests pairs; nothing is shared
+  between a listener and a storyteller until a coordinator approves.
 
 Everything runs locally and the default setup is free: no accounts and no paid APIs.
 
@@ -64,6 +70,15 @@ cp .env.example .env.local
 `.env.local` holds your settings. The defaults use Ollama with `llama3:8b` and work as they are.
 To use a different AI, see [Choosing an AI provider](#choosing-an-ai-provider).
 
+**Set a coordinator code.** Open `.env.local` and set `COORDINATOR_CODE` to a code only your
+coordinators know, for example:
+
+```bash
+COORDINATOR_CODE=choose-something-private
+```
+
+Coordinators type this code when they sign up. If it's empty, nobody can sign up as a coordinator.
+
 ## 4. Run it
 
 ```bash
@@ -84,9 +99,13 @@ To stop the app, press `Ctrl+C` in the terminal.
 
 ## 5. Using it
 
-1. **"I'm new here"** creates a profile, one question per screen: name, picture, birth year,
-   hometown, work, interests, and a 4-digit PIN. The interviewer uses these details to ask
-   better questions.
+Everyone starts with **"I'm new here"** on the home screen and picks who they are. After that,
+they sign in by tapping their picture and entering their 4-digit PIN.
+
+### Storytellers
+
+1. **Sign up**, one question per screen: name, picture, birth year, hometown, work, interests,
+   PIN. The interviewer uses these details to ask better questions.
 2. **Record a story**:
    - **Step 1, sound check:** see yourself, say hello, hear a test sound.
    - **Step 2, pick a topic:** Growing up, Family and love, Work and career, Times I lived
@@ -99,13 +118,40 @@ To stop the app, press `Ctrl+C` in the terminal.
      - **Finish & save my story**: the interviewer says goodbye, then the story is saved.
 3. After saving, the AI writes a **title, short summary and topic tags**. The story page has the
    video, large captions, and a list of the questions; tap one to jump there.
-4. **My profile** lets you change your picture and details, and the interviewer's **voice**
+4. **Home** shows "Young people listening to your stories" once a coordinator approves a pairing.
+5. **My profile** lets you change your picture and details, and the interviewer's **voice**
    (5 to choose from), **speaking speed**, and **how long it waits** when you pause
    (2, 3½ or 6 seconds).
-5. **Text size** (A / A+ / A++) is at the top of every page.
 
 Recordings are uploaded every few seconds while you talk. If the window is closed or the computer
 crashes mid-interview, the story is still saved, up to the last few seconds.
+
+### Listeners
+
+1. **Sign up:** name, picture, age group, who you are (high school student, college student,
+   volunteer, grandchild…), interests, what you'd love to learn from an older person, and
+   (optionally) someone you'd like to be paired with, like a grandparent.
+2. The **matching agent** immediately suggests storytellers for you, and a coordinator reviews them.
+3. **Home** shows **Your storytellers** once a pairing is approved (with the reason you were
+   paired), **Stories you might like** based on your interests, and **All stories**.
+
+### Coordinators
+
+1. **Sign up:** choose "I'm a program coordinator" and enter the coordinator code.
+2. **Pairings** (`/coordinator`) shows:
+   - **Waiting for your approval:** each suggestion shows the listener and the storyteller side
+     by side, what they have in common, and why the agent suggested them. Listeners under 18 are
+     clearly marked. **Approve pairing** or **Decline**.
+   - **Approved pairings**, each with **End pairing**.
+   - **Find new matches:** asks the agent to look again for every listener, for example after
+     new storytellers join or record stories. It runs in the background; with Ollama on the CPU it
+     can take a minute per listener.
+   - **Pair two people yourself:** for pairs you already know, like a grandchild and grandparent.
+   - **Declined or ended** pairings, which can be approved after all.
+
+### Text size
+
+**Text size** (A / A+ / A++) is at the top of every page.
 
 ---
 
@@ -129,6 +175,9 @@ questions instead, so an interview never stops halfway.
 
 ### Privacy at a glance
 
+- **Pairings need a coordinator's approval.** The matching agent only makes suggestions.
+- **Listener profiles** can be seen only by the listener, coordinators, and storytellers they're
+  paired with. Storytellers see listeners under 18 by first name only.
 - **Videos, photos and transcripts** are stored only in the `data/` folder on your computer.
 - **Speech recognition** uses Chrome's built-in service, which sends the microphone audio to
   Google to turn it into text.
@@ -152,6 +201,8 @@ questions instead, so an interview never stops halfway.
 | `Port 3000 is in use` | Another copy is running. Close it, or run `npm run dev -- -p 3001` and open http://localhost:3001. |
 | Start over with no profiles or stories | Stop the app and delete the `data/` folder. |
 | Forgot a PIN | There's no reset screen yet. Delete `data/` to start over. |
+| "Coordinator sign-up is turned off" | Set `COORDINATOR_CODE` in `.env.local` (section 3). |
+| The matching agent found no suggestions | It only suggests people with something real in common. Add more interests to the listener's profile, wait for storytellers to record stories (their story tags help), or pair them yourself. |
 
 ---
 
@@ -176,8 +227,13 @@ questions instead, so an interview never stops halfway.
 - **Speed tricks:** the AI reads each storyteller's instructions during the sound check, so the
   first question comes sooner. The voice starts speaking the first sentence while the rest is
   still being written. The voice runs on its own thread so the server stays responsive.
-- **Summaries and tags** written after each recording will be used to match storytellers with
-  young listeners who share their interests.
+- **The matching agent** (`src/lib/matching.ts`) reads each listener's interests and goals, and
+  each storyteller's profile, story titles, summaries and tags. It shortlists storytellers by
+  shared words, then the AI picks up to 3 and explains why. Small local models sometimes mix
+  people up, so every AI pick must quote the detail it relied on, and the app checks that the
+  detail really belongs to that storyteller; picks it can't back up are dropped. Anyone a
+  listener asked for by name is always suggested. Without AI, it matches on shared words alone.
+  Pairs that were already suggested, approved or declined are never suggested again.
 
 ### Project layout
 
@@ -191,7 +247,10 @@ questions instead, so an interview never stops halfway.
 | `src/lib/client/voice-player.ts` | Plays the voice sentence by sentence (falls back to the browser's voice) |
 | `src/components/Studio.tsx` | The recording studio screens |
 | `src/app/` | Pages (home, join, record, story, person, profile) and API routes (`src/app/api/`) |
-| `src/lib/db.ts` | SQLite database (`data/life-stories.db`) |
+| `src/lib/matching.ts`, `src/lib/keywords.ts` | The matching agent and shared-interest scoring |
+| `src/lib/roles.ts` | Storyteller / listener / coordinator details and the under-18 rules |
+| `src/components/CoordinatorBoard.tsx` | The coordinator's pairings screen |
+| `src/lib/db.ts` | SQLite database (`data/life-stories.db`), including pairings |
 | `src/lib/recovery.ts` | Saves recordings that were cut off by a closed window or crash |
 
 ### Checks
@@ -205,7 +264,10 @@ npm run lint       # lint
 
 ## Not built yet
 
-- **The young-listener side:** listener profiles, and the AI pairing young people with
-  storytellers by shared interests (the story tags are collected for this already).
+- **What happens after a pairing:** messages, thank-you notes or live calls between a listener
+  and a storyteller. For now a pairing lets each see the other, and puts the storyteller's stories
+  first for the listener.
+- **Parent or guardian consent** for listeners under 18 (they're flagged to coordinators today).
+- **Notifications** when a pairing is approved.
 - **PIN reset**, and limiting wrong PIN attempts. Fine for a family computer, not for the internet.
 - **Hosting it online.** It's intentionally localhost-only for now.
