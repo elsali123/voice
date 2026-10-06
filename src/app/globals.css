@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Warm, high-contrast palette. All text colors meet WCAG AAA (7:1) on paper/card. */
+@theme {
+  --color-paper: #fbf7f0;
+  --color-card: #ffffff;
+  --color-ink: #1f1a14;
+  --color-ink-soft: #4a4036;
+  --color-line: #d9cfc1;
+  --color-brand: #1d4e89;
+  --color-brand-dark: #153a66;
+  --color-brand-soft: #e3ecf7;
+  --color-rec: #b42318;
+  --color-rec-dark: #8f1c13;
+  --color-ok: #1e6b3a;
+  --color-ok-dark: #154d2a;
+  --color-ok-soft: #e3f2e8;
+  --color-warn-soft: #fff4d6;
+  --color-warn-line: #e0b84a;
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Text size switch (A / A+ / A++). Everything is sized in rem, so the whole page scales. */
+html {
+  font-size: 20px;
+  color-scheme: light;
+}
+html[data-size="l"] {
+  font-size: 23px;
+}
+html[data-size="xl"] {
+  font-size: 26px;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 4px solid #f5a524;
+  outline-offset: 3px;
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
