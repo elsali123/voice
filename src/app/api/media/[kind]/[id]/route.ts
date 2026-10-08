@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { NextRequest } from "next/server";
-import { getStory } from "@/lib/db";
+import { canSeePerson } from "@/lib/access";
+import { getStory, getUser } from "@/lib/db";
 import { isId, photoFile, thumbFile, videoFile } from "@/lib/files";
 import { currentUser } from "@/lib/session";
 
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/media/[kind]
   let file: string;
   let type: string;
   if (kind === "photo") {
+    const person = getUser(id);
+    if (!person || !canSeePerson(person, await currentUser())) return notFound();
     file = photoFile(id);
     type = "image/jpeg";
   } else if (kind === "video" || kind === "thumb") {

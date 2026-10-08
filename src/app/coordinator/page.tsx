@@ -11,11 +11,9 @@ export default async function CoordinatorPage() {
   if (!user) redirect("/");
   if (user.role !== "coordinator") redirect("/");
 
-  const listeners = listUsersByRole("listener");
-  const storytellers = listUsersByRole("storyteller");
-  const people = new Map<string, BoardPerson>();
-  for (const l of listeners) people.set(l.id, listenerCard(l));
-  for (const s of storytellers) people.set(s.id, storytellerCard(s));
+  const listeners = listUsersByRole("listener").map(listenerCard);
+  const storytellers = listUsersByRole("storyteller").map(storytellerCard);
+  const people = new Map<string, BoardPerson>([...listeners, ...storytellers].map((p) => [p.id, p]));
 
   const matches: BoardMatch[] = listMatches().flatMap((m) => {
     const listener = people.get(m.listenerId);
@@ -26,8 +24,8 @@ export default async function CoordinatorPage() {
   return (
     <CoordinatorBoard
       matches={matches}
-      listeners={listeners.map(listenerCard)}
-      storytellers={storytellers.map(storytellerCard)}
+      listeners={listeners}
+      storytellers={storytellers}
       job={matchJobStatus()}
     />
   );

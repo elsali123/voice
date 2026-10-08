@@ -87,6 +87,9 @@ npm run dev
 
 Open **http://localhost:3000** in **Google Chrome**.
 
+The site only answers on this computer. Other phones and computers on your Wi-Fi can't open it,
+so recordings, names and PINs stay private.
+
 The first time:
 
 - Chrome asks to use your **camera and microphone**. Choose **Allow**.
@@ -130,7 +133,7 @@ crashes mid-interview, the story is still saved, up to the last few seconds.
 
 1. **Sign up:** name, picture, age group, who you are (high school student, college student,
    volunteer, grandchild…), interests, what you'd love to learn from an older person, and
-   (optionally) someone you'd like to be paired with, like a grandparent.
+   (optionally) someone you'd like to be paired with, like a grandparent. Use their full name.
 2. The **matching agent** immediately suggests storytellers for you, and a coordinator reviews them.
 3. **Home** shows **Your storytellers** once a pairing is approved (with the reason you were
    paired), **Stories you might like** based on your interests, and **All stories**.
@@ -175,9 +178,12 @@ questions instead, so an interview never stops halfway.
 
 ### Privacy at a glance
 
+- **The site only works on this computer**, not from other devices on the network.
+- **Wrong PINs:** after 5 wrong tries, that person's sign-in is locked for 5 minutes.
 - **Pairings need a coordinator's approval.** The matching agent only makes suggestions.
-- **Listener profiles** can be seen only by the listener, coordinators, and storytellers they're
-  paired with. Storytellers see listeners under 18 by first name only.
+- **Listener profiles and photos** can be seen only by the listener, coordinators, and storytellers
+  they're paired with. On the sign-in screen, listeners appear without a photo, and those under 18
+  by first name and last initial ("Jamie R."). Storytellers see listeners under 18 by first name only.
 - **Videos, photos and transcripts** are stored only in the `data/` folder on your computer.
 - **Speech recognition** uses Chrome's built-in service, which sends the microphone audio to
   Google to turn it into text.
@@ -200,7 +206,9 @@ questions instead, so an interview never stops halfway.
 | Can't skip around in a video | Install ffmpeg (`brew install ffmpeg`). This applies to stories recorded after installing it. |
 | `Port 3000 is in use` | Another copy is running. Close it, or run `npm run dev -- -p 3001` and open http://localhost:3001. |
 | Start over with no profiles or stories | Stop the app and delete the `data/` folder. |
+| "Too many wrong tries" | Wait 5 minutes, then try again. |
 | Forgot a PIN | There's no reset screen yet. Delete `data/` to start over. |
+| Want to use the site from a tablet or another computer | It's deliberately limited to this computer. To open it to your network, change `-H 127.0.0.1` to `-H 0.0.0.0` in `package.json`, but then anyone on the same Wi-Fi can reach it. |
 | "Coordinator sign-up is turned off" | Set `COORDINATOR_CODE` in `.env.local` (section 3). |
 | The matching agent found no suggestions | It only suggests people with something real in common. Add more interests to the listener's profile, wait for storytellers to record stories (their story tags help), or pair them yourself. |
 
@@ -231,8 +239,12 @@ questions instead, so an interview never stops halfway.
   each storyteller's profile, story titles, summaries and tags. It shortlists storytellers by
   shared words, then the AI picks up to 3 and explains why. Small local models sometimes mix
   people up, so every AI pick must quote the detail it relied on, and the app checks that the
-  detail really belongs to that storyteller; picks it can't back up are dropped. Anyone a
-  listener asked for by name is always suggested. Without AI, it matches on shared words alone.
+  detail really belongs to that storyteller; picks it can't back up are dropped, and so are
+  names that fit more than one storyteller. If the AI decides nobody is a good match, nothing is
+  suggested. Anyone a listener asks for by full name (or by first name when they share a
+  surname, like "my grandma Margaret" from Sam Hill) is always suggested; a first name alone
+  doesn't count, since it could be an ordinary word like "Will" or "Rose". Without AI, it
+  matches on shared words alone.
   Pairs that were already suggested, approved or declined are never suggested again.
 
 ### Project layout
@@ -269,5 +281,6 @@ npm run lint       # lint
   first for the listener.
 - **Parent or guardian consent** for listeners under 18 (they're flagged to coordinators today).
 - **Notifications** when a pairing is approved.
-- **PIN reset**, and limiting wrong PIN attempts. Fine for a family computer, not for the internet.
+- **PIN reset.** There's also no real account security beyond the 4-digit PIN: fine on one
+  computer, not for the internet.
 - **Hosting it online.** It's intentionally localhost-only for now.

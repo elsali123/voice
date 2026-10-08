@@ -10,7 +10,8 @@ const SUMMARY_TIMEOUT_MS = 10 * 60_000;
 /**
  * Rescues recordings that were cut off before they could be saved properly (the window closed or
  * the computer crashed). The video was uploaded every few seconds, so almost all of it is kept.
- * A recording still receiving video (updated in the last 2 minutes) is left alone.
+ * A recording still in use is left alone: its file is updated every few seconds while recording,
+ * and every 30 seconds while paused.
  */
 export async function recoverUnfinishedStories(userId: string) {
   for (const story of listUnfinishedStories(userId)) {

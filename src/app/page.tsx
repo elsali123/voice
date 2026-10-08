@@ -6,14 +6,18 @@ import { IconHeart } from "@/components/icons";
 import { getUser, listMatches, listRecentStories, listStoriesByUser, listUsers, toPublicUser } from "@/lib/db";
 import { interestScore } from "@/lib/matching";
 import { recoverUnfinishedStories } from "@/lib/recovery";
-import { listenerDescription, nameFor } from "@/lib/roles";
+import { listenerDescription, nameFor, signInName } from "@/lib/roles";
 import { currentUser } from "@/lib/session";
 import type { Story, User } from "@/lib/types";
 import { firstName } from "@/lib/voices";
 
 export default async function Home() {
   const user = await currentUser();
-  if (!user) return <Welcome people={listUsers().map((u) => ({ ...toPublicUser(u), role: u.role }))} />;
+  if (!user) {
+    // Shown to anyone at this computer, so listeners appear without their photo, and those under 18 as "Jamie R.".
+    const people = listUsers().map((u) => ({ id: u.id, name: signInName(u), photoVersion: u.role === "listener" ? 0 : u.photoVersion, role: u.role }));
+    return <Welcome people={people} />;
+  }
   if (user.role === "listener") return <ListenerHome user={user} />;
   if (user.role === "coordinator") return <CoordinatorHome />;
   return <StorytellerHome user={user} />;

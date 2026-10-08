@@ -42,6 +42,7 @@ export default function CoordinatorBoard({
 }) {
   const router = useRouter();
   const [job, setJob] = useState<MatchJob | null>(initialJob);
+  const [interrupted, setInterrupted] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   const suggested = matches.filter((m) => m.status === "suggested");
@@ -53,8 +54,15 @@ export default function CoordinatorBoard({
     if (!job?.running) return;
     const timer = setInterval(async () => {
       const res = await fetch("/api/matches/suggest").catch(() => null);
-      const next = res?.ok ? ((await res.json()) as MatchJob | null) : null;
-      if (!next) return;
+      if (!res) return; // the app didn't answer this time; check again
+      const next = res.ok ? ((await res.json()) as MatchJob | null) : null;
+      if (!next) {
+        // The run is gone, e.g. the app restarted part-way. Stop waiting for it.
+        setJob(null);
+        setInterrupted(true);
+        router.refresh();
+        return;
+      }
       setJob(next);
       if (!next.running) router.refresh();
     }, 2000);
@@ -63,7 +71,10 @@ export default function CoordinatorBoard({
 
   const findMatches = async () => {
     const res = await fetch("/api/matches/suggest", { method: "POST" });
-    if (res.ok) setJob((await res.json()) as MatchJob);
+    if (res.ok) {
+      setInterrupted(false);
+      setJob((await res.json()) as MatchJob);
+    }
   };
 
   const decide = async (id: string, status: MatchStatus) => {
@@ -94,9 +105,11 @@ export default function CoordinatorBoard({
           <p className="text-lg text-ink-soft" role="status">
             {job?.running
               ? `Looking at listener ${Math.min(job.listenersChecked + 1, job.listenersTotal)} of ${job.listenersTotal}. This can take a minute.`
-              : job?.finishedAt
-                ? `Last run found ${job.suggested} new suggestion${job.suggested === 1 ? "" : "s"}.`
-                : "The agent suggests storytellers for each listener. Nothing is shared until you approve."}
+              : interrupted
+                ? "The last run was interrupted. Press “Find new matches” to try again."
+                : job?.finishedAt
+                  ? `Last run found ${job.suggested} new suggestion${job.suggested === 1 ? "" : "s"}.`
+                  : "The agent suggests storytellers for each listener. Nothing is shared until you approve."}
           </p>
         </div>
       </div>

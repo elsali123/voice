@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Avatar from "@/components/Avatar";
 import StoryCard from "@/components/StoryCard";
 import { IconHeart } from "@/components/icons";
-import { arePaired, getUser, listMatches, listStoriesByUser, toPublicUser } from "@/lib/db";
+import { approvedMatchBetween, getUser, listStoriesByUser, toPublicUser } from "@/lib/db";
 import { isUnder18, listenerDescription, nameFor, ROLE_LABELS } from "@/lib/roles";
 import { currentUser } from "@/lib/session";
 import { firstName } from "@/lib/voices";
@@ -19,13 +19,10 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
   const person = getUser(id);
   if (!person) notFound();
 
-  const paired = person.id !== viewer.id && arePaired(person.id, viewer.id);
-  if (person.role === "listener" && viewer.id !== person.id && viewer.role !== "coordinator" && !paired) notFound();
+  const pairing = person.id !== viewer.id ? approvedMatchBetween(person.id, viewer.id) : null;
+  if (person.role === "listener" && viewer.id !== person.id && viewer.role !== "coordinator" && !pairing) notFound();
 
   const name = nameFor(person, viewer);
-  const pairing = paired
-    ? listMatches({ status: "approved" }).find((m) => [m.listenerId, m.storytellerId].includes(person.id) && [m.listenerId, m.storytellerId].includes(viewer.id))
-    : undefined;
 
   const facts =
     person.role === "storyteller"

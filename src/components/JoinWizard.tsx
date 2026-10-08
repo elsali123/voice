@@ -60,7 +60,7 @@ const STEPS: Record<Role, Step[]> = {
       kind: "text",
       field: "about",
       question: "Is there someone you'd like to be paired with?",
-      help: "Optional. For example, your grandmother, if she's sharing her stories here too.",
+      help: "Optional. Use their full name. For example, your grandmother, if she's sharing her stories here too.",
       placeholder: "For example: my grandma, Margaret Hill",
     },
     { kind: "pin" },
@@ -125,14 +125,18 @@ export default function JoinWizard() {
     current.kind === "photo" ? !photo : (current.kind === "text" || current.kind === "choice") && !current.required && !values[current.field].trim();
 
   const submit = async () => {
+    if (!role) return;
     setBusy(true);
     setError(null);
+    // Only this role's answers: someone may have started as another role, then gone back.
+    const roleSteps = STEPS[role];
+    const answers = Object.fromEntries(roleSteps.flatMap((s) => (s.kind === "text" || s.kind === "choice" ? [[s.field, values[s.field]]] : [])));
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...values, role, photo, pin }),
+      body: JSON.stringify({ ...answers, role, photo: roleSteps.some((s) => s.kind === "photo") ? photo : null, pin }),
     });
-    if (res.ok && role) {
+    if (res.ok) {
       router.push(AFTER_JOIN[role]);
       router.refresh();
       return;

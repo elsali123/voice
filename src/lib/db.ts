@@ -440,13 +440,14 @@ export function decideMatch(id: string, status: MatchStatus, coordinatorId: stri
   db.prepare("UPDATE matches SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?").run(status, now(), coordinatorId, id);
 }
 
-/** True if a coordinator has approved a pairing between these two people (in either order). */
-export function arePaired(a: string, b: string): boolean {
+/** The pairing a coordinator approved between these two people (in either order), if any. */
+export function approvedMatchBetween(a: string, b: string): Match | null {
   const row = db
     .prepare(
-      `SELECT 1 FROM matches WHERE status = 'approved'
-       AND ((listener_id = :a AND storyteller_id = :b) OR (listener_id = :b AND storyteller_id = :a))`,
+      `SELECT * FROM matches WHERE status = 'approved'
+       AND ((listener_id = :a AND storyteller_id = :b) OR (listener_id = :b AND storyteller_id = :a))
+       LIMIT 1`,
     )
-    .get({ a, b });
-  return !!row;
+    .get({ a, b }) as MatchRow | undefined;
+  return row ? toMatch(row) : null;
 }

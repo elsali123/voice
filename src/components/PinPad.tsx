@@ -56,7 +56,7 @@ export default function PinPad({
               key.length > 1 ? "text-xl" : "text-4xl"
             }`}
           >
-            {key === "back" ? "⌫ Back" : key === "clear" ? "Clear" : key}
+            {key === "back" ? "⌫ Delete" : key === "clear" ? "Clear" : key}
           </button>
         ))}
       </div>

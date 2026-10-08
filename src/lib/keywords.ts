@@ -37,8 +37,19 @@ export function keywords(text: string): Map<string, string> {
   return out;
 }
 
-/** Words two texts have in common (as written in the first text). */
-export function sharedWords(a: string, b: string): string[] {
-  const kb = keywords(b);
+/** Words two texts have in common (as written in the first text). `b` may be pre-computed keywords. */
+export function sharedWords(a: string, b: string | Map<string, string>): string[] {
+  const kb = typeof b === "string" ? keywords(b) : b;
   return [...keywords(a)].filter(([key]) => kb.has(key)).map(([, word]) => word);
+}
+
+/** True if `text` contains `phrase` as whole words, in any letters or case ("Rose" isn't in "rosemary"). */
+export function containsPhrase(text: string, phrase: string): boolean {
+  const words = phrase
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!words.length) return false;
+  return new RegExp(`(?<![\\p{L}\\p{N}])${words.join("\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(text);
 }

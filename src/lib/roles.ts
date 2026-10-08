@@ -30,6 +30,13 @@ export function listenerDescription(u: Pick<User, "background" | "ageGroup">): s
   return [u.background, ageGroupLabel(u.ageGroup)].filter(Boolean).join(" · ");
 }
 
+/** On the shared sign-in screen, listeners under 18 appear as "Jamie R." */
+export function signInName(u: Pick<User, "name" | "role" | "ageGroup">): string {
+  if (!isUnder18(u)) return u.name;
+  const parts = u.name.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.` : parts[0];
+}
+
 /** Young listeners under 18 are shown by first name only to anyone but themselves and coordinators. */
 export function nameFor(person: Pick<User, "id" | "name" | "role" | "ageGroup">, viewer: Pick<User, "id" | "role"> | null): string {
   if (!isUnder18(person) || viewer?.id === person.id || viewer?.role === "coordinator") return person.name;

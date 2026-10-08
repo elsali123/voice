@@ -48,6 +48,8 @@ const TALKING_LEVEL = 0.25;
 const MIC_WHILE_INTERVIEWER_TALKS = 0.4;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** While paused no video is uploaded, so the server is told every so often that the recording is still in use. */
+const PAUSED_KEEPALIVE_MS = 30_000;
 
 /** Reads the interviewer's streamed reply (one JSON line per sentence). */
 async function* readSentences(body: ReadableStream<Uint8Array> | null, fallback?: string): AsyncGenerator<string> {
@@ -108,6 +110,7 @@ export class InterviewSession {
   private loudMs = 0;
   private silenceTimer: ReturnType<typeof setInterval> | undefined;
   private tickTimer: ReturnType<typeof setInterval> | undefined;
+  private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private pauseWaiters: (() => void)[] = [];
   private lastCheckInSec = 0;
   private wrapRequested = false;
@@ -174,6 +177,10 @@ export class InterviewSession {
       this.recorder = recorder;
       this.runningSince = performance.now();
       this.tickTimer = setInterval(() => this.tick(), 100);
+      this.keepAliveTimer = setInterval(() => {
+        // An empty upload just marks the recording as still in use; a missed one does no harm.
+        if (this.view.paused) void fetch(`/api/stories/${id}/chunk`, { method: "POST", body: new Blob([]) }).catch(() => {});
+      }, PAUSED_KEEPALIVE_MS);
       setTimeout(() => void this.captureThumbnail(), 4000);
     } catch (err) {
       this.fail(err instanceof Error ? err.message : "Something went wrong starting the recording.");
@@ -504,6 +511,7 @@ export class InterviewSession {
   private stopTimers() {
     clearInterval(this.silenceTimer);
     clearInterval(this.tickTimer);
+    clearInterval(this.keepAliveTimer);
   }
 
   private releaseAudio() {

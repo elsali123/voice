@@ -1,6 +1,6 @@
 import { brainInfo, chat } from "./ai";
 import { listMatches, listStoriesByUser, listUsersByRole, suggestMatch } from "./db";
-import { keywords, sharedWords } from "./keywords";
+import { containsPhrase, keywords, sharedWords } from "./keywords";
 import { listenerDescription } from "./roles";
 import type { User } from "./types";
 import { firstName } from "./voices";
@@ -13,12 +13,17 @@ import { firstName } from "./voices";
 const SUGGESTIONS_PER_LISTENER = 3;
 const MAX_CANDIDATES_FOR_AI = 20;
 
-interface Candidate {
+/** What we know about a storyteller. Built once per matching run and shared across listeners. */
+interface StorytellerProfile {
   storyteller: User;
-  /** Everything we know about them, as one text: profile plus story titles, summaries and tags. */
+  /** Profile plus story titles, summaries and tags, as one text. */
   profile: string;
+  profileKeys: Map<string, string>;
   /** Short description for the AI prompt. */
   brief: string;
+}
+
+interface Candidate extends StorytellerProfile {
   shared: string[];
   score: number;
 }
@@ -27,41 +32,63 @@ function listenerText(l: User) {
   return [l.interests, l.goals, l.about].join(" ");
 }
 
-function storytellerText(s: User) {
-  const stories = listStoriesByUser(s.id, null).filter((st) => st.status === "ready");
-  const profile = [s.hometown, s.work, s.interests, s.about, ...stories.map((st) => `${st.title} ${st.summary} ${st.tags.join(" ")}`)].join(" ");
-  const brief = [
-    s.birthYear && `born ${s.birthYear}`,
-    s.hometown && `grew up in ${s.hometown}`,
-    s.work && `work: ${s.work}`,
-    s.interests && `enjoys: ${s.interests}`,
-    s.about,
-    stories.length && `stories: ${stories.slice(0, 4).map((st) => `"${st.title}" (${st.tags.slice(0, 5).join(", ")})`).join("; ")}`,
-  ]
-    .filter(Boolean)
-    .join(". ");
-  return { profile, brief };
+function storytellerProfiles(): StorytellerProfile[] {
+  return listUsersByRole("storyteller").map((s) => {
+    const stories = listStoriesByUser(s.id, null).filter((st) => st.status === "ready");
+    const profile = [s.hometown, s.work, s.interests, s.about, ...stories.map((st) => `${st.title} ${st.summary} ${st.tags.join(" ")}`)].join(" ");
+    const brief = [
+      s.birthYear && `born ${s.birthYear}`,
+      s.hometown && `grew up in ${s.hometown}`,
+      s.work && `work: ${s.work}`,
+      s.interests && `enjoys: ${s.interests}`,
+      s.about,
+      stories.length && `stories: ${stories.slice(0, 4).map((st) => `"${st.title}" (${st.tags.slice(0, 5).join(", ")})`).join("; ")}`,
+    ]
+      .filter(Boolean)
+      .join(". ");
+    return { storyteller: s, profile, profileKeys: keywords(profile), brief };
+  });
 }
 
-/** Did the listener ask for this storyteller by name (e.g. a grandchild asking for their grandmother)? */
+/**
+ * Did the listener ask for this storyteller by name (e.g. a grandchild asking for their grandmother)?
+ * A first name alone isn't enough, since it can be an ordinary word ("Will", "Rose", "Grace").
+ */
 function askedFor(listener: User, storyteller: User): boolean {
-  const note = ` ${listener.about.toLowerCase()} `;
-  const full = storyteller.name.toLowerCase();
-  const first = firstName(storyteller.name).toLowerCase();
-  return note.includes(full) || (first.length > 2 && new RegExp(`\\b${first.replace(/[^a-z]/g, "")}\\b`).test(note));
+  const note = listener.about;
+  const names = storyteller.name.trim().split(/\s+/);
+  if (!note.trim() || !names[0]) return false;
+  if (containsPhrase(note, storyteller.name)) return true;
+  // First name plus a family name: theirs ("my grandma Margaret, Margaret Hill"), or, for relatives,
+  // the listener's own ("my grandma Margaret", written by Sam Hill).
+  const family = names.length > 1 ? names[names.length - 1] : null;
+  if (!family || !containsPhrase(note, names[0])) return false;
+  const listenerNames = listener.name.trim().split(/\s+/);
+  const listenerFamily = listenerNames.length > 1 ? listenerNames[listenerNames.length - 1] : null;
+  return containsPhrase(note, family) || listenerFamily?.toLowerCase() === family.toLowerCase();
 }
 
-function candidatesFor(listener: User): Candidate[] {
+function candidatesFor(listener: User, profiles: StorytellerProfile[]): Candidate[] {
   const alreadyConsidered = new Set(listMatches({ listenerId: listener.id }).map((m) => m.storytellerId));
   const wants = listenerText(listener);
-  return listUsersByRole("storyteller")
-    .filter((s) => !alreadyConsidered.has(s.id))
-    .map((s) => {
-      const { profile, brief } = storytellerText(s);
-      const shared = sharedWords(wants, profile);
-      return { storyteller: s, profile, brief, shared, score: shared.length + (askedFor(listener, s) ? 10 : 0) };
+  return profiles
+    .filter((p) => !alreadyConsidered.has(p.storyteller.id))
+    .map((p) => {
+      const shared = sharedWords(wants, p.profileKeys);
+      return { ...p, shared, score: shared.length + (askedFor(listener, p.storyteller) ? 10 : 0) };
     })
     .sort((a, b) => b.score - a.score);
+}
+
+/** The storyteller the AI named. A partial name counts only if it fits exactly one storyteller. */
+function namedCandidate(shortlist: Candidate[], named: unknown): Candidate | undefined {
+  if (typeof named !== "string") return undefined;
+  const name = named.trim().replace(/^(mr|mrs|ms|miss|dr)\.?\s+/i, "");
+  if (!name) return undefined;
+  const exact = shortlist.find((c) => c.storyteller.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact;
+  const partial = shortlist.filter((c) => containsPhrase(c.storyteller.name, name));
+  return partial.length === 1 ? partial[0] : undefined;
 }
 
 interface Pick {
@@ -71,6 +98,10 @@ interface Pick {
   source: "ai" | "keywords";
 }
 
+/**
+ * The AI's picks. Returns null if the AI is unavailable or none of its picks could be checked, so
+ * shared-interest matching takes over; returns [] if it decided nobody is a good match.
+ */
 async function aiPicks(listener: User, candidates: Candidate[]): Promise<Pick[] | null> {
   if (brainInfo().provider === "scripted") return null;
   const shortlist = candidates.slice(0, MAX_CANDIDATES_FOR_AI);
@@ -99,19 +130,32 @@ Return only JSON like this:
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
     if (!json) return null;
     const parsed = JSON.parse(json) as { matches?: { name?: unknown; evidence?: unknown; shared?: unknown; reason?: unknown }[] };
+    if (!Array.isArray(parsed.matches)) return null;
+    if (!parsed.matches.length) {
+      console.log(`[matching] the AI found no good match for ${listener.name}`);
+      return [];
+    }
+    const wantsKeys = keywords(listenerText(listener));
     const picks: Pick[] = [];
-    for (const m of parsed.matches ?? []) {
-      const name = typeof m.name === "string" ? m.name.toLowerCase().trim() : "";
-      const candidate = shortlist.find((c) => c.storyteller.name.toLowerCase() === name) ?? shortlist.find((c) => name && c.storyteller.name.toLowerCase().includes(name));
-      if (!candidate || picks.some((p) => p.storyteller.id === candidate.storyteller.id)) continue;
+    for (const m of parsed.matches) {
+      const candidate = namedCandidate(shortlist, m.name);
+      if (!candidate) {
+        console.warn(`[matching] skipped an AI pick that doesn't name exactly one storyteller: "${String(m.name)}"`);
+        continue;
+      }
+      if (picks.some((p) => p.storyteller.id === candidate.storyteller.id)) continue;
       // Small models sometimes mix storytellers up. Keep a pick only if its evidence is really in that storyteller's profile.
       const evidence = typeof m.evidence === "string" ? m.evidence : "";
-      if (!askedFor(listener, candidate.storyteller) && sharedWords(evidence, candidate.profile).length === 0) {
+      if (!askedFor(listener, candidate.storyteller) && sharedWords(evidence, candidate.profileKeys).length === 0) {
         console.warn(`[matching] dropped an AI suggestion it couldn't back up: ${listener.name} ↔ ${candidate.storyteller.name} ("${evidence}")`);
         continue;
       }
+      // "In common" means both of them mention it.
       const shared = Array.isArray(m.shared)
-        ? m.shared.map((x) => String(x).toLowerCase().trim()).filter((x) => x && sharedWords(x, candidate.profile + " " + listenerText(listener)).length > 0).slice(0, 5)
+        ? m.shared
+            .map((x) => String(x).toLowerCase().trim())
+            .filter((x) => x && sharedWords(x, candidate.profileKeys).length > 0 && sharedWords(x, wantsKeys).length > 0)
+            .slice(0, 5)
         : [];
       const reason = typeof m.reason === "string" ? m.reason.trim().slice(0, 300) : "";
       picks.push({ storyteller: candidate.storyteller, shared: shared.length ? shared : candidate.shared.slice(0, 5), reason: reason || keywordReason(listener, candidate), source: "ai" });
@@ -132,9 +176,9 @@ function keywordReason(listener: User, c: Candidate): string {
 }
 
 /** Suggests new storytellers for one listener. Returns how many new suggestions were made. */
-export async function suggestMatchesFor(listener: User): Promise<number> {
+export async function suggestMatchesFor(listener: User, profiles: StorytellerProfile[] = storytellerProfiles()): Promise<number> {
   if (listener.role !== "listener") return 0;
-  const candidates = candidatesFor(listener);
+  const candidates = candidatesFor(listener, profiles);
   if (!candidates.length) return 0;
 
   const keywordPick = (c: Candidate): Pick => ({ storyteller: c.storyteller, reason: keywordReason(listener, c), shared: c.shared.slice(0, 5), source: "keywords" });
@@ -176,13 +220,14 @@ export function matchJobStatus(): MatchJob | null {
 export function startMatchJob(): MatchJob {
   if (g.__matchJob?.running) return g.__matchJob;
   const listeners = listUsersByRole("listener");
+  const profiles = storytellerProfiles();
   const job: MatchJob = { running: true, startedAt: new Date().toISOString(), finishedAt: null, listenersChecked: 0, listenersTotal: listeners.length, suggested: 0 };
   g.__matchJob = job;
   void (async () => {
     try {
       for (const listener of listeners) {
         try {
-          job.suggested += await suggestMatchesFor(listener);
+          job.suggested += await suggestMatchesFor(listener, profiles);
         } catch (err) {
           console.error(`[matching] failed for ${listener.name}:`, err);
         }
